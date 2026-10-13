@@ -21,7 +21,7 @@ function cfgReady() {
 
 var cheerio = require('cheerio-without-node-native');
 
-var BASE_URL = 'https://www.dizimom.diy';
+var BASE_URL = 'https://www.dizimom.cafe';
 var TMDB_API_KEY = '500330721680edb6d5f7f12ba7cd9023';
 
 var HEADERS = {

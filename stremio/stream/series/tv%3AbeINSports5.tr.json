@@ -51,21 +51,6 @@
       }
     },
     {
-      "name": "⌜ PapazSports ⌟",
-      "title": "BeIN Sports 5 HD [1080p HD]",
-      "url": "https://cdn.bsg1791571202.top/cdn/4jfsPbPsMmOknIABH50U2A/1791836057/100005.js",
-      "headers": {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://www.papazsports1028.pro/",
-        "Origin": "https://www.papazsports1028.pro",
-        "usertoken": "4jfsPbPsMmOknIABH50U2A",
-        "pl": "PapazSports"
-      },
-      "behaviorHints": {
-        "isLive": true
-      }
-    },
-    {
       "name": "⌜ Anthology Spor ⌟",
       "title": "BeIN Sports 5 HD [Canlı]",
       "url": "https://andro.evrenesoglu121.click/checklist/androstreamlivebs5.m3u8",

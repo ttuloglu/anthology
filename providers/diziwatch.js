@@ -1,7 +1,7 @@
 /**
  * Anthology Provider: diziwatch
  * Built from src/diziwatch/index.js
- * Build: v1.8.28 (anthology build system)
+ * Build: v1.8.29 (anthology build system)
  */
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __commonJS = (cb, mod) => function __require() {
@@ -149,7 +149,7 @@ function cfgReady() {
   return _cfgReady;
 }
 var TMDB_API_KEY = "500330721680edb6d5f7f12ba7cd9023";
-var BASE_URL = "https://diziwatch.ac";
+var BASE_URL = "https://diziwatch.org";
 var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 var HEADERS = {
   "User-Agent": UA,

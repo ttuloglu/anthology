@@ -22,7 +22,7 @@ function cfgReady() {
 var cheerio = require('cheerio-without-node-native');
 
 const PROVIDER_NAME = 'SinemaCX';
-var BASE_URL = 'https://www.sinema.gg';
+var BASE_URL = 'https://sinemacc.com';
 const TMDB_API_KEY = '500330721680edb6d5f7f12ba7cd9023';
 
 const WORKING_HEADERS = {
