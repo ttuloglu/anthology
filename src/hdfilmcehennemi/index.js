@@ -205,14 +205,41 @@ var SLUG_CACHE = new Map();
 
 // ==================== YARDIMCI FONKSİYONLAR ====================
 
-function fetchWithTimeout(url, options, ms) {
+async function fetchWithTimeout(url, options, ms) {
   var opts = options || {};
   try {
     if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
       opts.signal = AbortSignal.timeout(ms || 10000);
     }
   } catch (e) {}
-  return fetch(url, opts);
+
+  try {
+    var res = await fetch(url, opts);
+    if (res && res.status !== 403) {
+      return res;
+    }
+  } catch (e) {}
+
+  if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+    try {
+      var cp = require('child_process');
+      var headers = opts.headers || {};
+      var cmd = 'curl -s --http1.1 ';
+      for (var k in headers) {
+        cmd += '-H ' + JSON.stringify(k + ': ' + headers[k]) + ' ';
+      }
+      cmd += JSON.stringify(url);
+      var text = cp.execSync(cmd, { maxBuffer: 15 * 1024 * 1024 }).toString();
+      return {
+        ok: true,
+        status: 200,
+        text: async function() { return text; },
+        json: async function() { return JSON.parse(text); }
+      };
+    } catch (e) {}
+  }
+
+  return { ok: false, status: 403, text: async function() { return ''; }, json: async function() { return {}; } };
 }
 
 function slugify(text) {
@@ -237,7 +264,7 @@ function ultraClean(str) {
 
 // ==================== TMDB BİLGİ ÇÖZÜMLEME ====================
 
-async function resolveTmdbInfo(id) {
+async function resolveTmdbInfo(id, mediaType) {
   try {
     var cleanId = String(id || '').trim();
     if (cleanId.includes(':')) cleanId = cleanId.split(':')[0];
@@ -247,6 +274,7 @@ async function resolveTmdbInfo(id) {
     var year = '';
     var imdbId = '';
     var tmdbId = '';
+    var isSeries = (mediaType === 'tv' || mediaType === 'series');
 
     if (cleanId.startsWith('tt')) {
       imdbId = cleanId;
@@ -254,24 +282,27 @@ async function resolveTmdbInfo(id) {
       var findRes = await fetchWithTimeout(findUrl, {}, 8000);
       if (findRes.ok) {
         var fd = await findRes.json();
-        var match = fd.movie_results && fd.movie_results[0];
+        var match = isSeries 
+          ? ((fd.tv_results && fd.tv_results[0]) || (fd.movie_results && fd.movie_results[0]))
+          : ((fd.movie_results && fd.movie_results[0]) || (fd.tv_results && fd.tv_results[0]));
         if (match) {
-          titleTr = match.title || '';
-          titleEn = match.original_title || '';
-          year = (match.release_date || '').split('-')[0];
+          titleTr = match.name || match.title || '';
+          titleEn = match.original_name || match.original_title || '';
+          year = (match.first_air_date || match.release_date || '').split('-')[0];
           tmdbId = String(match.id || '');
         }
       }
     } else if (/^\d+$/.test(cleanId)) {
       tmdbId = cleanId;
-      var movieUrl = 'https://api.themoviedb.org/3/movie/' + cleanId + '?api_key=' + TMDB_API_KEY + '&language=tr-TR';
-      var mRes = await fetchWithTimeout(movieUrl, {}, 8000);
+      var endpoint = isSeries ? 'tv' : 'movie';
+      var detailsUrl = 'https://api.themoviedb.org/3/' + endpoint + '/' + cleanId + '?api_key=' + TMDB_API_KEY + '&language=tr-TR';
+      var mRes = await fetchWithTimeout(detailsUrl, {}, 8000);
       if (mRes.ok) {
         var md = await mRes.json();
-        titleTr = md.title || '';
-        titleEn = md.original_title || '';
-        year = (md.release_date || '').split('-')[0];
-        imdbId = md.imdb_id || '';
+        titleTr = md.name || md.title || '';
+        titleEn = md.original_name || md.original_title || '';
+        year = (md.first_air_date || md.release_date || '').split('-')[0];
+        imdbId = (md.external_ids && md.external_ids.imdb_id) || md.imdb_id || '';
       }
     }
 
@@ -285,6 +316,115 @@ async function resolveTmdbInfo(id) {
   } catch (e) {
     return { titleTr: '', titleEn: '', year: '', imdbId: '', tmdbId: '' };
   }
+}
+
+// ==================== DİZİ HARİTASI VE SLUG BULUCU ====================
+
+var SERIES_MAP = {
+  "tt1586680": "shameless",
+  "shameless": "shameless",
+  "tt0903747": "breaking-bad-izle",
+  "breaking-bad": "breaking-bad-izle",
+  "tt0944947": "game-of-thrones",
+  "game-of-thrones": "game-of-thrones",
+  "tt4574334": "stranger-things-izle",
+  "stranger-things": "stranger-things-izle",
+  "tt1190634": "the-boys-izle",
+  "the-boys": "the-boys-izle",
+  "tt0773262": "dexter-izle",
+  "dexter": "dexter-izle",
+  "tt8772296": "euphoria",
+  "euphoria": "euphoria",
+  "tt7631058": "the-lord-of-the-rings-the-rings-of-power-izle-1",
+  "tt11198330": "house-of-the-dragon",
+  "house-of-the-dragon": "house-of-the-dragon",
+  "tt3581920": "the-last-of-us",
+  "the-last-of-us": "the-last-of-us",
+  "tt4052886": "lucifer-izle",
+  "lucifer": "lucifer-izle",
+  "tt1553656": "the-witcher-izle",
+  "the-witcher": "the-witcher-izle",
+  "tt2442560": "peaky-blinders-izle",
+  "peaky-blinders": "peaky-blinders-izle",
+  "tt5753856": "dark-izle",
+  "dark": "dark-izle",
+  "tt0460681": "supernatural",
+  "supernatural": "supernatural",
+  "tt8633478": "chernobyl",
+  "chernobyl": "chernobyl",
+  "tt0455275": "prison-break-izle",
+  "prison-break": "prison-break-izle",
+  "tt2306299": "vikings-izle",
+  "vikings": "vikings-izle"
+};
+
+async function findSeriesSlug(tmdbIdOrSlug, seasonNum, episodeNum) {
+  var cleanId = String(tmdbIdOrSlug || '').trim();
+  if (cleanId.startsWith('hdfilmcehennemi:series:') || cleanId.startsWith('hdfilmcehennemi:tv:')) {
+    return cleanId.replace(/hdfilmcehennemi:(series|tv):/, '').trim();
+  }
+  if (cleanId.includes(':')) {
+    cleanId = cleanId.split(':')[0];
+  }
+
+  // 1. Doğrudan SERIES_MAP kontrolü
+  if (SERIES_MAP[cleanId]) return SERIES_MAP[cleanId];
+
+  // 2. Cache kontrolü
+  var cacheKey = 'tv:' + cleanId;
+  if (SLUG_CACHE.has(cacheKey)) return SLUG_CACHE.get(cacheKey);
+
+  // 3. TMDB Metadata Çözümleme
+  var info = await resolveTmdbInfo(cleanId, 'tv');
+  if (info.imdbId && SERIES_MAP[info.imdbId]) {
+    SLUG_CACHE.set(cacheKey, SERIES_MAP[info.imdbId]);
+    return SERIES_MAP[info.imdbId];
+  }
+
+  var candidates = [];
+  var enSlug = slugify(info.titleEn);
+  var trSlug = slugify(info.titleTr);
+  var year = info.year;
+
+  if (enSlug) {
+    candidates.push(enSlug);
+    candidates.push(enSlug + '-izle');
+    if (year) {
+      candidates.push(enSlug + '-' + year);
+      candidates.push(enSlug + '-' + year + '-izle');
+    }
+    candidates.push('hd-' + enSlug + '-izle');
+    candidates.push(enSlug + '-dizi');
+    candidates.push(enSlug + '-dizi-izle');
+  }
+
+  if (trSlug && trSlug !== enSlug) {
+    candidates.push(trSlug);
+    candidates.push(trSlug + '-izle');
+    if (year) {
+      candidates.push(trSlug + '-' + year);
+      candidates.push(trSlug + '-' + year + '-izle');
+    }
+  }
+
+  var sNum = seasonNum || 1;
+  var eNum = episodeNum || 1;
+
+  for (var i = 0; i < candidates.length; i++) {
+    var cand = candidates[i];
+    if (!cand) continue;
+    try {
+      var checkUrl = BASE_URL + '/dizi/' + cand + '/sezon-' + sNum + '/bolum-' + eNum + '/';
+      var res = await fetchWithTimeout(checkUrl, { headers: HEADERS }, 5000);
+      if (res.status === 200) {
+        SLUG_CACHE.set(cacheKey, cand);
+        if (info.imdbId) SERIES_MAP[info.imdbId] = cand;
+        return cand;
+      }
+    } catch (e) {}
+  }
+
+  return null;
 }
 
 // ==================== FİLM EŞLEŞTİRME (SLUG BULUCU) ====================
@@ -432,14 +572,47 @@ async function resolveCloseLoadStreams(pageUrl) {
     // Script bloklarını tara
     var scripts = Array.from(eHtml.matchAll(/<script[\s\S]*?<\/script>/gi)).map(function(m) { return m[0]; });
     var streamUrl = null;
-    for (var i = 0; i < scripts.length; i++) {
-      var s = scripts[i];
-      if (s.includes('var ') && s.includes('([') && (s.includes('btoa') || s.includes('atob') || s.includes('join'))) {
-        var cleanScript = s.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '');
-        var dec = decryptCloseLoadScript(cleanScript);
-        if (dec && typeof dec === 'string' && dec.startsWith('http')) {
-          streamUrl = dec;
-          break;
+
+    // Yöntem A: sources: [{file: <varName>, ...}]
+    var fileVarMatch = eHtml.match(/sources:\s*\[\{\s*file:\s*([a-zA-Z0-9_$]+)/);
+    if (fileVarMatch) {
+      var targetVar = fileVarMatch[1];
+      for (var sIdx = 0; sIdx < scripts.length; sIdx++) {
+        var s = scripts[sIdx];
+        if (s.includes('var ' + targetVar + ' =') || s.includes('var ' + targetVar + '=')) {
+          var cleanScriptA = s.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '');
+          var codeA = [
+            'var atob = (typeof globalThis.atob !== "undefined") ? globalThis.atob : function(s) {',
+            '  return Buffer.from(s, "base64").toString("binary");',
+            '};',
+            'var btoa = (typeof globalThis.btoa !== "undefined") ? globalThis.btoa : function(s) {',
+            '  return Buffer.from(s, "binary").toString("base64");',
+            '};',
+            cleanScriptA,
+            'return ' + targetVar + ';'
+          ].join('\n');
+          try {
+            var decA = new Function(codeA)();
+            if (decA && typeof decA === 'string' && decA.startsWith('http')) {
+              streamUrl = decA;
+              break;
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    // Yöntem B: decryptCloseLoadScript
+    if (!streamUrl) {
+      for (var i = 0; i < scripts.length; i++) {
+        var sB = scripts[i];
+        if (sB.includes('var ') && sB.includes('([') && (sB.includes('btoa') || sB.includes('atob') || sB.includes('join'))) {
+          var cleanScriptB = sB.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '');
+          var decB = decryptCloseLoadScript(cleanScriptB);
+          if (decB && typeof decB === 'string' && decB.startsWith('http')) {
+            streamUrl = decB;
+            break;
+          }
         }
       }
     }
@@ -514,29 +687,60 @@ async function resolveCloseLoadStreams(pageUrl) {
 async function getStreams(tmdbIdOrArgs, mediaType, seasonNum, episodeNum) {
   try {
     var rawId = tmdbIdOrArgs;
+    var finalSeason = seasonNum;
+    var finalEpisode = episodeNum;
+
     if (typeof tmdbIdOrArgs === 'object' && tmdbIdOrArgs !== null) {
       rawId = tmdbIdOrArgs.id || '';
       mediaType = mediaType || tmdbIdOrArgs.type || tmdbIdOrArgs.mediaType;
+      if (tmdbIdOrArgs.season) finalSeason = tmdbIdOrArgs.season;
+      if (tmdbIdOrArgs.episode) finalEpisode = tmdbIdOrArgs.episode;
     }
 
     if (!rawId) return [];
 
-    var slug = await findMovieSlug(rawId);
-    if (!slug) return [];
+    var isTv = (mediaType === 'tv' || mediaType === 'series');
+    if (typeof rawId === 'string' && rawId.includes(':')) {
+      var parts = rawId.split(':');
+      if (parts.length >= 3) {
+        isTv = true;
+        var s = parseInt(parts[parts.length - 2]);
+        var e = parseInt(parts[parts.length - 1]);
+        if (!isNaN(s)) finalSeason = s;
+        if (!isNaN(e)) finalEpisode = e;
+      }
+    }
 
-    var pageUrl = BASE_URL + '/' + slug + '/';
+    finalSeason = parseInt(finalSeason) || 1;
+    finalEpisode = parseInt(finalEpisode) || 1;
+
+    var pageUrl = null;
+
+    if (isTv) {
+      var seriesSlug = await findSeriesSlug(rawId, finalSeason, finalEpisode);
+      if (!seriesSlug) return [];
+      pageUrl = BASE_URL + '/dizi/' + seriesSlug + '/sezon-' + finalSeason + '/bolum-' + finalEpisode + '/';
+    } else {
+      var movieSlug = await findMovieSlug(rawId);
+      if (!movieSlug) return [];
+      pageUrl = BASE_URL + '/' + movieSlug + '/';
+    }
+
     var resolved = await resolveCloseLoadStreams(pageUrl);
     if (!resolved || !resolved.streamUrl) return [];
 
     var masterUrl = resolved.streamUrl;
-    // Oynatıcıların HLS formatını garanti algılaması için #.m3u8 eki eklenir
     var playUrl = masterUrl.includes('#') ? masterUrl : (masterUrl + '#.m3u8');
+
+    var streamTitle = isTv
+      ? ('HDFilmCehennemi - S' + finalSeason + 'E' + finalEpisode + ' [Dual: TR Dublaj / Orijinal] 1080p')
+      : 'HDFilmCehennemi - 1080p [Dual: TR Dublaj / Orijinal]';
 
     var streams = [];
 
     streams.push({
       name: 'HDFilmCehennemi [CloseLoad]',
-      title: 'HDFilmCehennemi - 1080p [Dual: TR Dublaj / Orijinal]',
+      title: streamTitle,
       url: playUrl,
       quality: '1080p',
       format: 'hls',

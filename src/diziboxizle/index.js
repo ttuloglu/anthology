@@ -18,13 +18,75 @@ function cfgReady() {
  * VidMoly (master.m3u8) ve Ok.ru (1080p MP4/HLS) doğrudan akışları sağlar.
  */
 
-var BASE_URL = 'https://diziboxizle.com';
+var BASE_URL = 'https://www.dizibox.live';
 var TMDB_API_KEY = '500330721680edb6d5f7f12ba7cd9023';
 
 var HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
   'Referer': BASE_URL + '/'
 };
+
+var KNOWN_SERIES_MAP = {
+  "tt1586680": "shameless",
+  "shameless": "shameless",
+  "tt0903747": "breaking-bad",
+  "breaking-bad": "breaking-bad",
+  "tt8633478": "chernobyl",
+  "chernobyl": "chernobyl",
+  "tt0460681": "supernatural",
+  "supernatural": "supernatural",
+  "tt4574334": "stranger-things",
+  "stranger-things": "stranger-things",
+  "tt1190634": "the-boys",
+  "the-boys": "the-boys",
+  "tt0773262": "dexter",
+  "dexter": "dexter",
+  "tt0455275": "prison-break",
+  "prison-break": "prison-break",
+  "tt11198330": "house-of-the-dragon",
+  "house-of-the-dragon": "house-of-the-dragon",
+  "tt3581920": "the-last-of-us",
+  "the-last-of-us": "the-last-of-us",
+  "tt2442560": "peaky-blinders",
+  "peaky-blinders": "peaky-blinders"
+};
+
+async function fetchWithTimeout(url, options, ms) {
+  var opts = options || {};
+  try {
+    if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+      opts.signal = AbortSignal.timeout(ms || 10000);
+    }
+  } catch (e) {}
+
+  try {
+    var res = await fetch(url, opts);
+    if (res && res.status !== 403) {
+      return res;
+    }
+  } catch (e) {}
+
+  if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+    try {
+      var cp = require('child_process');
+      var headers = opts.headers || {};
+      var cmd = 'curl -s --http1.1 ';
+      for (var k in headers) {
+        cmd += '-H ' + JSON.stringify(k + ': ' + headers[k]) + ' ';
+      }
+      cmd += JSON.stringify(url);
+      var text = cp.execSync(cmd, { maxBuffer: 15 * 1024 * 1024 }).toString();
+      return {
+        ok: true,
+        status: 200,
+        text: async function() { return text; },
+        json: async function() { return JSON.parse(text); }
+      };
+    } catch (e) {}
+  }
+
+  return { ok: false, status: 403, text: async function() { return ''; }, json: async function() { return {}; } };
+}
 
 var SERIES_MAP = {
   "56-days": "56 Days",
@@ -209,6 +271,16 @@ function ultraClean(str) {
     })
     .replace(/[^a-z0-9]/g, '')
     .trim();
+}
+
+function slugify(text) {
+  if (!text) return '';
+  return text.toString().toLowerCase()
+    .replace(/[ıİ]/g, 'i').replace(/[üÜ]/g, 'u').replace(/[öÖ]/g, 'o')
+    .replace(/[şŞ]/g, 's').replace(/[ğĞ]/g, 'g').replace(/[çÇ]/g, 'c')
+    .replace(/[âÂ]/g, 'a').replace(/[îÎ]/g, 'i').replace(/[ûÛ]/g, 'u')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 function decodeHtmlEntities(str) {
@@ -560,32 +632,88 @@ async function resolveOkRu(iframeUrl) {
 }
 
 /**
+ * King / MolyStream 1080p HLS Çözücü
+ */
+async function resolveKingOrMolyStream(iframeUrl) {
+  try {
+    var fullUrl = iframeUrl.startsWith('//') ? 'https:' + iframeUrl : iframeUrl;
+    var molyUrl = fullUrl;
+
+    if (fullUrl.includes('king.php')) {
+      var res = await fetchWithTimeout(fullUrl, {
+        headers: {
+          'User-Agent': HEADERS['User-Agent'],
+          'Referer': BASE_URL + '/'
+        }
+      }, 7000);
+      if (!res.ok) return [];
+      var html = await res.text();
+      var ifrMatch = html.match(/<iframe[^>]+src=["']([^"'>]+molystream[^"'>]+)["']/i);
+      if (ifrMatch) {
+        molyUrl = ifrMatch[1];
+      } else {
+        var anyIfr = html.match(/<iframe[^>]+src=["']([^"'>]+)["']/i);
+        if (anyIfr) molyUrl = anyIfr[1];
+      }
+    }
+
+    if (!molyUrl) return [];
+    if (molyUrl.startsWith('//')) molyUrl = 'https:' + molyUrl;
+
+    var idMatch = molyUrl.match(/\/embed\/([a-zA-Z0-9_-]+)/);
+    if (!idMatch) return [];
+    var streamId = idMatch[1];
+
+    var streamUrl = 'https://dbx.molystream.org/embed/sheila/' + streamId + '#.m3u8';
+    var sHeaders = {
+      'User-Agent': HEADERS['User-Agent'],
+      'Referer': 'https://dbx.molystream.org/'
+    };
+
+    return [{
+      name: 'DiziBOX [MolyStream]',
+      title: 'DiziBOX - 1080p [Dual: TR Dublaj / Orijinal]',
+      url: streamUrl,
+      quality: '1080p',
+      format: 'hls',
+      isHls: true,
+      headers: sHeaders,
+      behaviorHints: {
+        notWebReady: false,
+        headers: sHeaders
+      }
+    }];
+  } catch (e) {
+    return [];
+  }
+}
+
+/**
  * Bölüm sayfasındaki iframe ve oynatıcı kaynaklarını çıkarıp çözer
  */
 async function fetchEpisodeMirrors(episodeUrl) {
   try {
-    var res = await fetch(episodeUrl, { headers: HEADERS, signal: timeoutSignal(8000) });
+    var res = await fetchWithTimeout(episodeUrl, { headers: HEADERS }, 8000);
     if (!res.ok) return [];
     var html = await res.text();
 
     var iframes = [];
     var seenIframes = {};
 
-    var containerMatch = html.match(/<div class="video-container">([\s\S]*?)<\/div>/i);
-    var targetArea = containerMatch ? containerMatch[1] : html;
-
     var iframeRegex = /<iframe[^>]+src=["']([^"'>]+)["']/gi;
     var m;
-    while ((m = iframeRegex.exec(targetArea)) !== null) {
+    while ((m = iframeRegex.exec(html)) !== null) {
       var src = m[1];
-      if (src && !seenIframes[src]) {
+      if (src && !seenIframes[src] && !src.includes('facebook') && !src.includes('twitter')) {
         seenIframes[src] = true;
         iframes.push(src);
       }
     }
 
     var promises = iframes.map(async function(src) {
-      if (src.indexOf('vidmoly') !== -1) {
+      if (src.indexOf('king.php') !== -1 || src.indexOf('molystream') !== -1) {
+        return await resolveKingOrMolyStream(src);
+      } else if (src.indexOf('vidmoly') !== -1) {
         return await resolveVidMoly(src);
       } else if (src.indexOf('ok.ru') !== -1 || src.indexOf('odnoklassniki') !== -1) {
         return await resolveOkRu(src);
@@ -757,35 +885,82 @@ async function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
     }
 
     // 4. TMDB / IMDb ID Formatı (tt123456:1:1 veya numeric:1:1)
-    if (typeof tmdbId === 'string' && tmdbId.indexOf(':') !== -1) {
-      var parts = tmdbId.split(':');
+    var cleanId = (typeof tmdbId === 'string') ? tmdbId : '';
+    if (cleanId.indexOf(':') !== -1) {
+      var parts = cleanId.split(':');
       if (parts.length >= 3) {
         var s = parseInt(parts[parts.length - 2]);
         var e = parseInt(parts[parts.length - 1]);
         if (!isNaN(s)) finalSeason = s;
         if (!isNaN(e)) finalEpisode = e;
       }
+      cleanId = parts[0];
+    }
+
+    // 5. Doğrudan Bilinen Dizi Eşleştirmesi ve Aday Slug'lar
+    var candidateSlugs = [];
+    if (KNOWN_SERIES_MAP[cleanId]) {
+      candidateSlugs.push(KNOWN_SERIES_MAP[cleanId]);
     }
 
     var info = await resolveTmdbInfo(tmdbId, mediaType);
-    if (!info.titles || !info.titles.length) return [];
+    if (info.titles && info.titles.length) {
+      for (var tIdx = 0; tIdx < info.titles.length; tIdx++) {
+        var tSlug = slugify(info.titles[tIdx]);
+        if (tSlug && candidateSlugs.indexOf(tSlug) === -1) {
+          candidateSlugs.push(tSlug);
+        }
+      }
+    }
 
+    // 6. Doğrudan Bölüm URL Denemesi (Hızlı ve Güvenilir)
+    for (var cIdx = 0; cIdx < candidateSlugs.length; cIdx++) {
+      var cSlug = candidateSlugs[cIdx];
+      var directEpUrl = BASE_URL + '/' + cSlug + '-' + finalSeason + '-sezon-' + finalEpisode + '-bolum-izle/';
+      try {
+        var epCheck = await fetchWithTimeout(directEpUrl, { headers: HEADERS }, 5000);
+        if (epCheck.status === 200) {
+          var directStreams = await fetchEpisodeMirrors(directEpUrl);
+          if (directStreams && directStreams.length > 0) {
+            return directStreams;
+          }
+        }
+      } catch (e) {}
+
+      // Dizi detay sayfası üzerinden deneme: /dizi/<slug>/
+      try {
+        var detailUrl = BASE_URL + '/dizi/' + cSlug + '/';
+        var dCheck = await fetchWithTimeout(detailUrl, { headers: HEADERS }, 5000);
+        if (dCheck.status === 200) {
+          var dHtml = await dCheck.text();
+          var epListD = parseEpisodes(dHtml);
+          var targetEpD = matchEpisode(epListD, finalSeason, finalEpisode);
+          if (targetEpD) {
+            var dStreams = await fetchEpisodeMirrors(targetEpD.url);
+            if (dStreams && dStreams.length > 0) {
+              return dStreams;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 7. Arama Sayfası Fallback
     var matchedSeries = null;
-
-    // TMDB başlıklarıyla arama yap
-    for (var i = 0; i < info.titles.length; i++) {
-      var q = info.titles[i];
-      var list = await searchSeries(q);
-      if (list && list.length > 0) {
-        matchedSeries = pickBestSeries(list, q);
-        if (matchedSeries) break;
+    if (info.titles && info.titles.length) {
+      for (var i = 0; i < info.titles.length; i++) {
+        var q = info.titles[i];
+        var list = await searchSeries(q);
+        if (list && list.length > 0) {
+          matchedSeries = pickBestSeries(list, q);
+          if (matchedSeries) break;
+        }
       }
     }
 
     if (!matchedSeries) return [];
 
-    // Dizi detay sayfasından bölümleri çek
-    var sRes = await fetch(matchedSeries.url, { headers: HEADERS, signal: timeoutSignal(8000) });
+    var sRes = await fetchWithTimeout(matchedSeries.url, { headers: HEADERS }, 8000);
     if (!sRes.ok) return [];
     var sHtml = await sRes.text();
 

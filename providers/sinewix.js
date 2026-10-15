@@ -1,7 +1,7 @@
 /**
  * Anthology Provider: sinewix
  * Built from src/sinewix/index.js
- * Build: v1.8.29 (anthology build system)
+ * Build: v1.8.30 (anthology build system)
  */
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;

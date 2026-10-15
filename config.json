@@ -71,6 +71,9 @@
       "hdfilmcehennemi": {
         "base": "https://www.hdfilmcehennemi.nl"
       },
+      "filmmakinesi": {
+        "base": "https://filmmakinesi.to"
+      },
       "hdfilmdelisi": {
         "base": "https://hdfilmdelisi.one",
         "vidmody_player": "https://player.vidmody.com"
@@ -127,7 +130,10 @@
         "storage": "https://storage.diziyou.one"
       },
       "diziboxizle": {
-        "base": "https://diziboxizle.com"
+        "base": "https://www.dizibox.live"
+      },
+      "filmmakinesi": {
+        "base": "https://filmmakinesi.to"
       },
       "dizipod": {
         "base": "https://dizipod.com"
